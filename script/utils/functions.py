@@ -9,7 +9,9 @@ from multiprocessing.dummy import Pool as ThreadPool
 from itertools import chain
 import pandas as pd
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
+import time
+import asyncio
+import aiohttp
 
 load_dotenv()
 session = requests.Session()
@@ -60,7 +62,7 @@ def log_error(error_obj, error_from):
         db_connection.close()
 
 
-def get_market_data(args):
+async def get_market_data(session, args):
     if args["exchange"].lower() == "binance futures":
         url = (
             "https://fapi.binance.com/fapi/v1/klines/?symbol="
@@ -70,71 +72,66 @@ def get_market_data(args):
             + "&limit="
             + str(50)
         )
-    response = session.get(url)
 
-    soup = ""
-    if response.status_code == 502:
+        async with session.get(url) as response:
+            soup = ""
+            if response.status == 502:
+                return soup
+
+            if response.status != 200:
+                try:
+                    retry = 1
+                    while (
+                        response.status != 200
+                        and response.status != 404
+                        and retry > 0
+                    ):
+                        async with session.get(url=url) as response:
+                            retry -= 1
+                except Exception as e:
+                    log_error(e, "price url response in request handler")
+
+            if response.status == 200:
+                soup = await response.json()
+                try:
+                    for i, _ in enumerate(soup):
+                        if type(soup[i]) is list:
+                            soup[i] = soup[i][0:6]
+                            soup[i].extend(
+                                [args["symbol"], args["exchange"], args["timeframe"]]
+                            )
+                        else:
+                            print(soup, url)
+                except Exception as e:
+                    log_error(e, "getting symbol info in request handler")
+                    soup = []
+
         return soup
 
-    if response.status_code != 200:
+
+async def get_prices():
+    async with aiohttp.ClientSession() as session:
+        prices_df = pd.DataFrame(
+            columns=[
+                "timestamp",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "symbol",
+                "exchange",
+                "timeframe",
+            ]
+        )
+        
         try:
-            retry = 1
-            while (
-                response.status_code != 200
-                and response.status_code != 404
-                and retry > 0
-            ):
-                response = session.get(url=url)
-                retry -= 1
+            timeframes = os.getenv("TIMEFRAMES").split(",")
+            binance_symbols = os.getenv("SYMBOLS").split(",")
+            binance_symbols = [symbol + "USDT" for symbol in binance_symbols]
         except Exception as e:
-            log_error(e, "price url response in request handler")
+            log_error(e, "getting env variables in main")
 
-    if response.status_code == 200:
-        soup = json.loads(response.text)
-        try:
-            for i, _ in enumerate(soup):
-                if type(soup[i]) is list:
-                    soup[i] = soup[i][0:6]
-                    soup[i].extend(
-                        [args["symbol"], args["exchange"], args["timeframe"]]
-                    )
-                else:
-                    print(soup, url)
-        except Exception as e:
-            log_error(e, "getting symbol info in request handler")
-            soup = []
-        return soup
-
-    return soup
-
-
-def get_prices():
-    # create empty df for prices
-    prices_df = pd.DataFrame(
-        columns=[
-            "timestamp",
-            "open",
-            "high",
-            "low",
-            "close",
-            "volume",
-            "symbol",
-            "exchange",
-            "timeframe",
-        ]
-    )
-    # get timeframes and symbols
-    try:
-        timeframes = os.getenv("TIMEFRAMES").split(",")
-        binance_symbols = os.getenv("SYMBOLS").split(",")
-        binance_symbols = [symbol + "USDT" for symbol in binance_symbols]
-    except Exception as e:
-        log_error(e, "getting env variables in get_prices")
-
-    # create pool to call get_market_data by bulk
-    try:
-        pool = ThreadPool(len(binance_symbols) * len(timeframes))
-        print(f"{len(binance_symbols) * len(timeframes)} tasks started.....")
         args = []
         for symbol in binance_symbols:
             for timeframe in timeframes:
@@ -145,16 +142,13 @@ def get_prices():
                         "exchange": "binance futures",
                     }
                 )
-        binance_prices = pool.map(get_market_data, args)
-        binance_prices = list(chain(*binance_prices))
-    except Exception as e:
-        binance_prices = []
-        log_error(e, "parallel threading in get_prices")
 
-    # converting prices to df
-    try:
+        tasks = [get_market_data(session, arg) for arg in args]
+        binance_prices = await asyncio.gather(*tasks)
+
+        # Convert the results to a DataFrame
         prices_df = pd.DataFrame(
-            binance_prices,
+            list(chain(*binance_prices)),
             columns=[
                 "timestamp",
                 "open",
@@ -176,10 +170,6 @@ def get_prices():
                 "volume": "float64",
             }
         )
-    except Exception as e:
-        log_error(e, "creating price_df in get_prices")
-
     return prices_df
 
-
-print(get_prices())
+# asyncio.run(get_prices())
