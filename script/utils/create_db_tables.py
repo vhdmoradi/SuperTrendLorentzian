@@ -5,21 +5,16 @@ def create_tables():
     db_connection, db_cursor = functions.db_connect("main_db")
 
     query = """
-        CREATE TABLE symbols (
-            id SERIAL PRIMARY KEY,
-            symbol_name VARCHAR(32) NOT NULL,
-            exchange VARCHAR(40) NOT NULL,
-            active BOOLEAN NOT NULL
-        );
         
         CREATE TABLE alerts (
             id SERIAL PRIMARY KEY,
-            symbol INT,
-            FOREIGN KEY (symbol) REFERENCES symbols(id),
+            symbol VARCHAR(32) NOT NULL, 
             timeframe BIGINT NOT NULL,
             created_at TIMESTAMP NOT NULL,
             exchange VARCHAR(40) NOT NULL,
-            entryexit VARCHAR(5) NOT NULL
+            entryexit VARCHAR(5) NOT NULL,
+            entry_price DOUBLE PRECISION,
+            exit_price DOUBLE PRECISION
         );
         
         CREATE TABLE error_log (
@@ -36,6 +31,3 @@ def create_tables():
     finally:
         db_cursor.close()
         db_connection.close()
-
-
-create_tables()

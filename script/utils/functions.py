@@ -70,7 +70,7 @@ async def get_market_data(session, args):
             + "&interval="
             + args["timeframe"]
             + "&limit="
-            + str(50)
+            + str(1500)
         )
 
         async with session.get(url) as response:
@@ -82,9 +82,7 @@ async def get_market_data(session, args):
                 try:
                     retry = 1
                     while (
-                        response.status != 200
-                        and response.status != 404
-                        and retry > 0
+                        response.status != 200 and response.status != 404 and retry > 0
                     ):
                         async with session.get(url=url) as response:
                             retry -= 1
@@ -124,7 +122,7 @@ async def get_prices():
                 "timeframe",
             ]
         )
-        
+
         try:
             timeframes = os.getenv("TIMEFRAMES").split(",")
             binance_symbols = os.getenv("SYMBOLS").split(",")
@@ -170,6 +168,19 @@ async def get_prices():
                 "volume": "float64",
             }
         )
+    # # Group by timeframe and sort within each group by timestamp
+    # grouped = prices_df.groupby("timeframe")
+    # # Sort the data within each group by timestamp (ascending order)
+    # prices_cleaned = grouped.apply(lambda x: x.sort_values(by="timestamp")).reset_index(
+    #     drop=True
+    # )
+    # # Drop the last row from each group
+    # prices_df = (
+    #     prices_cleaned.groupby("timeframe")
+    #     .apply(lambda x: x.iloc[:-1])
+    #     .reset_index(drop=True)
+    # )
     return prices_df
+
 
 # asyncio.run(get_prices())
