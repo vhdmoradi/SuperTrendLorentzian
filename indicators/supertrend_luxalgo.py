@@ -22,24 +22,16 @@ holder = []
 factors = []
 
 
-def supertrend_ai(
-    prices,
-    length=111,
-    minMult=1,
-    maxMult=5,
-    step=0.5,
-    perfAlpha=10,
-    fromCluster="Best",
-    maxIter=1000,
-    maxData=10000,
-):
-    length = int(length)
-    minMult = int(minMult)
-    maxMult = int(maxMult)
-    step = float(step)
-    perfAlpha = int(perfAlpha)
-    maxIter = int(maxIter)
-    maxData = int(maxData)
+def supertrend_ai(args):
+    prices = args["prices"]
+    length = int(args["length"])
+    minMult = int(args["minMult"])
+    maxMult = int(args["maxMult"])
+    step = float(args["step"])
+    perfAlpha = int(args["perfAlpha"])
+    fromCluster = args["fromCluster"]
+    maxIter = int(args["maxIter"])
+    maxData = int(args["maxData"])
     if maxMult < minMult:
         raise ValueError("Minimum factor is greater than maximum factor in the range")
     # # Group by timeframe and sort within each group by timestamp
@@ -86,6 +78,7 @@ def supertrend_ai(
 
         # Create a Supertrend instance with the DataFrame
         holder.append(Supertrend(supertrend_df))
+
         # Calculate diff and update perf for the Supertrend instance
         diff = np.sign(prices["close"].shift(1) - supertrend_df["output"])
         supertrend_df["perf"] += (
