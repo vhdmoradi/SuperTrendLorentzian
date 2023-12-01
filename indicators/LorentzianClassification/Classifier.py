@@ -145,6 +145,8 @@ class LorentzianClassification:
         settings: Settings = None,
         filterSettings: FilterSettings = None,
     ):
+        print("got here lc!!!!!!!!!!!!!!!!!")
+
         self.df = data.copy()
         self.features = []
         self.filterSettings = None
@@ -472,6 +474,7 @@ class LorentzianClassification:
         isBearishChange = isBearishRate & wasBullishRate
         self.df["isBearishChange"] = isBearishChange
         isBullishChange = isBullishRate & wasBearishRate
+        self.df["isBullishChange"] = isBullishChange
         # Kernel Crossovers
         isBullishCrossAlert = crossover(self.yhat2, self.yhat1)
         isBearishCrossAlert = crossunder(self.yhat2, self.yhat1)
@@ -554,6 +557,7 @@ class LorentzianClassification:
                 & self.df["isLastSignalBuy"]
             )
         ) & startLongTrade.shift(4)
+
         endShortTradeStrict = (
             (isHeldFourBars & self.df["isLastSignalSell"])
             | (

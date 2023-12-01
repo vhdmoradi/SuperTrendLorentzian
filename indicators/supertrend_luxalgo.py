@@ -23,6 +23,7 @@ factors = []
 
 
 def supertrend_ai(args):
+    print("got here spt!!!!!!!!!!!!!!!!!")
     prices = args["prices"]
     length = int(args["length"])
     minMult = int(args["minMult"])
@@ -180,8 +181,9 @@ def supertrend_ai(args):
         prices["close"] < new_supertrend_df["lower"]
     )
     os["timestamp"] = prices["timestamp"].values
+    os["symbol"] = prices["symbol"].values
     ts = pd.DataFrame(data={"os": [0] * len(prices)})
     ts["os"] = np.where(
         os["os"] == 1, new_supertrend_df["upper"], new_supertrend_df["lower"]
     )
-    return os, symbol
+    return os

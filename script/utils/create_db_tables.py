@@ -9,12 +9,14 @@ def create_tables():
         CREATE TABLE alerts (
             id SERIAL PRIMARY KEY,
             symbol VARCHAR(32) NOT NULL, 
-            timeframe BIGINT NOT NULL,
+            timeframe VARCHAR(5) NOT NULL,
             created_at TIMESTAMP NOT NULL,
             exchange VARCHAR(40) NOT NULL,
             entryexit VARCHAR(5) NOT NULL,
             entry_price DOUBLE PRECISION,
-            exit_price DOUBLE PRECISION
+            exit_price DOUBLE PRECISION,
+            exit_type VARCHAR(2),
+            
         );
         
         CREATE TABLE error_log (

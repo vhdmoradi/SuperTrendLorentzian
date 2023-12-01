@@ -54,7 +54,6 @@ def log_error(error_obj, error_from):
         current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         query = "INSERT INTO public.error_log (error_from, description, created_at) VALUES (%s, %s, %s)"
         values = (error_from, error_message, current_timestamp)
-        print(f"query: {query}")
         db_cursor.execute(query, values)
 
     finally:
@@ -70,7 +69,7 @@ async def get_market_data(session, args):
             + "&interval="
             + args["timeframe"]
             + "&limit="
-            + str(1500)
+            + str(225)
         )
 
         async with session.get(url) as response:
@@ -183,4 +182,183 @@ async def get_prices():
     return prices_df
 
 
-# asyncio.run(get_prices())
+def entry_signal(spt_data, lc_data, symbol):
+    # Entry signal:
+    # For enrtry signal, we will also consider the last candle that has not yet been closed
+    # For entry signal: for long positions -> first the spt_signal must change from 0 to 1
+    # Then at the same canlde, or one before, or one after, the lc_data.df["isBearishChange"] should also be true.
+
+    # for short positions -> first the spt_signal must change from 1 to 0
+    # Then at the same canlde, or one before, or one after, the lc_data.df["isBullishChange"] should also be true.
+
+    spt_signal_long = False
+    lc_signal_long = False
+    spt_signal_short = False
+    lc_signal_short = False
+
+    spt_signal_long = (
+        spt_data["os"].iloc[-1] > spt_data["os"].iloc[-2]
+        or spt_data["os"].iloc[-2] > spt_data["os"].iloc[-3]
+    )
+    lc_signal_long = (
+        lc_data["isBearishChange"].iloc[-1] or lc_data["isBearishChange"].iloc[-2]
+    )
+
+    spt_signal_short = (
+        spt_data["os"].iloc[-1] < spt_data["os"].iloc[-2]
+        or spt_data["os"].iloc[-2] < spt_data["os"].iloc[-3]
+    )
+    lc_signal_short = (
+        lc_data["isBullishChange"].iloc[-1] or lc_data["isBullishChange"].iloc[-2]
+    )
+
+    # For generating a long signal, both conditions must be True
+    strategy_long_signal = spt_signal_long and lc_signal_long
+
+    # For generating a short signal, both conditions must be True
+    strategy_short_signal = spt_signal_short and lc_signal_short
+
+    longshort = None
+    if strategy_long_signal:
+        longshort == "long"
+    elif strategy_short_signal:
+        longshort = "short"
+
+    # If no signal, just return
+    if not strategy_long_signal and not strategy_short_signal:
+        return 0, 0, longshort
+
+    # If there is a signal, first it must be saved in the db
+    timeframe = lc_data["timeframe"].iloc[-1]
+    created_at = lc_data["timestamp"].iloc[-1] / 1000
+    exchange = "Binance Futures"
+    entryexit = "entry"
+    entry_price = lc_data["close"].iloc[-1]
+    exit_price = 0.99 * entry_price
+    db_connection, db_cursor = db_connect("main_db")
+    try:
+        insert_signal_query = "INSERT INTO public.alerts(timeframe, TO_TIMESTAMP(created_at), exchange, entryexit, entry_price, exit_price, symbol) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+        values = (
+            timeframe,
+            created_at,
+            exchange,
+            entryexit,
+            entry_price,
+            exit_price,
+            symbol,
+        )
+        db_cursor.execute(insert_signal_query, values)
+    except Exception as e:
+        log_error(e, "saving entry signal into db")
+    finally:
+        db_cursor.close()
+        db_connection.close()
+
+    return 1, created_at
+
+
+def exit_signal(lc_data, exit_price, symbol, longshort):
+    if longshort == "long":
+        # exit signal:
+        # for long positions -> for stop loss signal, we will monitor the price to be above 99% of entry_price. (so entry_price - 0.01 * entry_price will be our stop loss)
+        # for long positions -> for tp target signal, we will monitor the lc.df["isBearishChange"] value; if True, we will produce the tp signal.
+        sl = tp = False
+        # stop loss signal:
+        if lc_data["close"].iloc[-2] < exit_price:
+            sl = True
+
+        # take profit signal
+        if lc_data["isBearishChange"].iloc[-2]:
+            tp = True
+
+        # if no signal, just return
+        if not (sl or tp):
+            return 0, 0, 0
+
+        created_at = lc_data["timestamp"].iloc[-1] / 1000
+        exit_type = "sl" if sl else ("tp" if tp else None)
+
+        return 1, exit_type, created_at
+    elif longshort == "short":
+        # exit signal:
+        # for short positions -> for stop loss signal, we will monitor the price to be above 99% of entry_price. (so entry_price + 0.01 * entry_price will be our stop loss)
+        # for short positions -> for tp target signal, we will monitor the lc.df["isBullishRate"] value; if True, we will produce the tp signal.
+
+        sl = tp = False
+        # stop loss signal:
+        if lc_data["close"].iloc[-2] > exit_price:
+            sl = True
+
+        # take profit signal
+        if lc_data["isBullishRate"].iloc[-2]:
+            tp = True
+
+        # if no signal, just return
+        if not (sl or tp):
+            return 0, 0, 0
+
+        created_at = lc_data["timestamp"].iloc[-1] / 1000
+        exit_type = "sl" if sl else ("tp" if tp else None)
+
+        return 1, exit_type, created_at
+    return 0, 0, 0
+
+
+def exit_short_signal(lc_data, exit_price, symbol):
+    # exit signal:
+    # for short positions -> for stop loss signal, we will monitor the price to be above 99% of entry_price. (so entry_price + 0.01 * entry_price will be our stop loss)
+    # for short positions -> for tp target signal, we will monitor the lc.df["isBullishRate"] value; if True, we will produce the tp signal.
+
+    sl = tp = False
+    # stop loss signal:
+    if lc_data["close"].iloc[-2] >= exit_price:
+        sl = True
+
+    # take profit signal
+    if lc_data["isBullishRate"].iloc[-2]:
+        tp = True
+
+    # if no signal, just return
+    if not (sl or tp):
+        return 0, 0, 0
+
+    created_at = lc_data["timestamp"].iloc[-1] / 1000
+    exit_type = "sl" if sl else ("tp" if tp else None)
+
+    return 1, exit_type, created_at
+
+
+def insert_signal_db(
+    timeframe,
+    created_at,
+    exchange,
+    entryexit,
+    entry_price,
+    exit_price,
+    exit_type,
+    symbol,
+    message_id,
+):
+    if len(str(created_at)) == 13:
+        created_at = created_at // 1000
+
+    db_connection, db_cursor = db_connect("main_db")
+    try:
+        insert_signal_query = "INSERT INTO public.alerts(timeframe, TO_TIMESTAMP(created_at), exchange, entryexit, entry_price, exit_price, exit_type, symbol, message_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        values = (
+            timeframe,
+            created_at,
+            exchange,
+            entryexit,
+            entry_price,
+            exit_price,
+            exit_type,
+            symbol,
+            message_id,
+        )
+        db_cursor.execute(insert_signal_query, values)
+    except Exception as e:
+        log_error(e, "saving signal into db")
+    finally:
+        db_cursor.close()
+        db_connection.close()
