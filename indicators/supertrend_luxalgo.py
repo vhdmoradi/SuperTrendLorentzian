@@ -2,6 +2,7 @@ import pandas as pd
 import talib
 import pandas_ta as ta
 import numpy as np
+from script.utils import functions
 
 np.seterr(divide="ignore", invalid="ignore")
 pd.set_option("display.max_rows", None)
@@ -23,7 +24,6 @@ factors = []
 
 
 def supertrend_ai(args):
-    print("got here spt!!!!!!!!!!!!!!!!!")
     prices = args["prices"]
     length = int(args["length"])
     minMult = int(args["minMult"])
@@ -48,32 +48,24 @@ def supertrend_ai(args):
     #     .reset_index(drop=True)
     # )
     # Populate Supertrend type array
+
     symbol = prices["symbol"].iloc[-1]
     for i in range(int((maxMult - minMult) / step) + 1):
         factor_value = minMult + i * step
         factors.append(factor_value)
 
     for factor in factors:
-        _props = f"_{length}_{factor}"
-
-        # Calculate Supertrend using ta.supertrend
-        supertrend_values = ta.supertrend(
-            prices["high"],
-            prices["low"],
-            prices["close"],
-            length=length,
-            multiplier=factor,
-        )
+        spt = functions.supertrend(prices=prices, length=length, factor=factor)
 
         # Create a DataFrame for each Supertrend instance
         supertrend_df = pd.DataFrame(
             {
-                "upper": supertrend_values[f"SUPERTl{_props}"],
-                "lower": supertrend_values[f"SUPERTs{_props}"],
-                "output": supertrend_values[f"SUPERT{_props}"],
-                "perf": [0] * len(supertrend_values),
-                "factor": [factor] * len(supertrend_values),
-                "trend": supertrend_values[f"SUPERT{_props}"],
+                "upper": spt["upper"],
+                "lower": spt["lower"],
+                "output": spt["supertrend"],
+                "perf": [0] * len(spt),
+                "factor": [factor] * len(spt),
+                "trend": spt["direction"],
             }
         )
 
@@ -157,22 +149,19 @@ def supertrend_ai(args):
 
         # Get performance index of the target cluster
         perf_idx = max(perfclusters[from_cluster].mean(), 0) / den
-    new_supertrend = ta.supertrend(
-        prices["high"],
-        prices["low"],
-        prices["close"],
+    new_supertrend = functions.supertrend(
+        prices=prices,
         length=length,
-        multiplier=target_factor,
+        factor=target_factor,
     )
-    _props = f"_{length}_{target_factor}"
     new_supertrend_df = pd.DataFrame(
         {
-            "upper": new_supertrend[f"SUPERTl{_props}"],
-            "lower": new_supertrend[f"SUPERTs{_props}"],
-            "output": new_supertrend[f"SUPERT{_props}"],
-            "perf": [0] * len(new_supertrend),
-            "factor": [factor] * len(new_supertrend),
-            "trend": new_supertrend[f"SUPERT{_props}"],
+            "upper": spt["upper"],
+            "lower": spt["lower"],
+            "output": spt["supertrend"],
+            "perf": [0] * len(spt),
+            "factor": [factor] * len(spt),
+            "trend": spt["direction"],
         }
     )
     hl2 = (prices["high"] + prices["low"]) / 2

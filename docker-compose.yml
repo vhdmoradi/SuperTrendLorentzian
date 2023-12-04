@@ -1,0 +1,33 @@
+version: "3.8"
+services:
+  db:
+    container_name: pg_container
+    image: postgres:14.0-alpine
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: victorkeke
+      POSTGRES_DB: supertrendlorentzian
+    ports:
+      - "5432:5432"
+
+  pgadmin:
+    container_name: pgadmin4_container
+    image: dpage/pgadmin4
+    restart: always
+    logging:
+      driver: none
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: vahid.moradi001@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: victorkeke
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+volumes:
+  postgres_data:
+  pgadmin_data:

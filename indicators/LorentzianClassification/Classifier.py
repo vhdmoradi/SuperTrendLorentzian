@@ -145,8 +145,6 @@ class LorentzianClassification:
         settings: Settings = None,
         filterSettings: FilterSettings = None,
     ):
-        print("got here lc!!!!!!!!!!!!!!!!!")
-
         self.df = data.copy()
         self.features = []
         self.filterSettings = None

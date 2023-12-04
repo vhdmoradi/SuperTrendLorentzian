@@ -9,9 +9,12 @@ from indicators.LorentzianClassification.Classifier import LorentzianClassificat
 import multiprocessing
 import time
 import concurrent.futures
+import pandas as pd
+from croniter import croniter
 
 load_dotenv()
 loop = asyncio.get_event_loop()
+pd.set_option("display.max_columns", None)
 
 
 async def main():
@@ -112,7 +115,6 @@ async def main():
 
         # We will check the symbols with the latest entryexit alarm value with 'entry' for exit signals from exit_long_signal() function
         # for exit strategy, we either need the lorentzien line to change direction (tp) or the price to be less than 99% of the entry price
-
         if (
             symbol_pair in latest_alerts
             and latest_alerts[symbol_pair]["entryexit"] == "entry"
@@ -120,7 +122,7 @@ async def main():
             entry_price = latest_alerts[symbol_pair]["entry_price"]
             exit_price = latest_alerts[symbol_pair]["exit_price"]
             longshort = latest_alerts[symbol_pair]["longshort"]
-            is_signal, exit_type, timestamp = functions.exit_signal(
+            is_signal, sltp, timestamp = functions.exit_signal(
                 lc_result_for_symbol.df.tail(10), exit_price, symbol_pair, longshort
             )
             price_diff = abs(entry_price - exit_price) / exit_price * 100
@@ -130,19 +132,18 @@ async def main():
                 entry_signal_message_id = (
                     latest_alerts[symbol_pair]["signal_message_id"] or None
                 )
-                singal_message_id = loop.run_until_complete(
+                signal_message_id = loop.run_until_complete(
                     send_message.send_telegram_message(
-                        signal_time=timestamp,
                         entryexit="exit",
                         symbol=symbol_pair,
                         signal_message_id=entry_signal_message_id,
                         longshort=longshort,
-                        exit_type=exit_type,
+                        sltp=sltp,
                         price_diff=price_diff,
                     )
                 )
 
-                # after sending message and getting singal_message_id, now we enter the signal in db
+                # after sending message and getting signal_message_id, now we enter the signal in db
                 functions.insert_signal_db(
                     timeframe=lc_result_for_symbol.df["timeframe"].iloc[-1],
                     created_at=lc_result_for_symbol.df["timestamp"].iloc[-1],
@@ -150,9 +151,9 @@ async def main():
                     entryexit="exit",
                     entry_price=None,
                     exit_price=lc_result_for_symbol.df["close"].iloc[-2],
-                    exit_type=exit_type,
+                    sltp=sltp,
                     symbol=symbol_pair,
-                    message_id=singal_message_id,
+                    signal_message_id=signal_message_id,
                 )
 
             continue
@@ -163,20 +164,25 @@ async def main():
         )
         # If the is_signal is true, we will send the signal to telegram bot
         if is_signal:
+            # print(
+            #     "#################################",
+            #     is_signal,
+            #     timestamp,
+            #     longshort,
+            #     symbol_pair,
+            # )
             entry_price = lc_result_for_symbol.df["close"].iloc[-1]
             exit_price = (
                 0.99 * entry_price if longshort == "long" else 1.01 * entry_price
             )
-            singal_message_id = loop.run_until_complete(
-                send_message.send_telegram_message(
-                    signal_time=timestamp,
-                    entryexit="exit",
-                    symbol=symbol_pair,
-                    longshort=longshort,
-                    exit_price=exit_price,
-                )
+            signal_message_id = await send_message.send_telegram_message(
+                entryexit="entry",
+                symbol=symbol_pair,
+                entry_price=entry_price,
+                longshort=longshort,
+                exit_price=exit_price,
             )
-            # after sending message and getting singal_message_id, now we enter the signal in db
+            # after sending message and getting signal_message_id, now we enter the signal in db
 
             functions.insert_signal_db(
                 timeframe=lc_result_for_symbol.df["timeframe"].iloc[-1],
@@ -185,9 +191,10 @@ async def main():
                 entryexit="entry",
                 entry_price=entry_price,
                 exit_price=exit_price,
-                longshort=longshort,
                 symbol=symbol_pair,
-                message_id=singal_message_id,
+                signal_message_id=signal_message_id,
+                longshort=longshort,
+                sltp=None,
             )
     duration = time.time() - start_time
     print(f"Duration of supertrend_luxalgo: {duration} seconds")

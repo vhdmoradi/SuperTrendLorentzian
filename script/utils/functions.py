@@ -12,6 +12,9 @@ from requests.adapters import HTTPAdapter
 import time
 import asyncio
 import aiohttp
+import pandas_ta as ta
+import numpy as np
+import pandas as pd
 
 load_dotenv()
 session = requests.Session()
@@ -196,31 +199,36 @@ def entry_signal(spt_data, lc_data, symbol):
     spt_signal_short = False
     lc_signal_short = False
 
-    spt_signal_long = (
-        spt_data["os"].iloc[-1] > spt_data["os"].iloc[-2]
-        or spt_data["os"].iloc[-2] > spt_data["os"].iloc[-3]
-    )
-    lc_signal_long = (
-        lc_data["isBearishChange"].iloc[-1] or lc_data["isBearishChange"].iloc[-2]
-    )
+    # spt_signal_long = (
+    #     spt_data["os"].iloc[-1] > spt_data["os"].iloc[-2]
+    #     or spt_data["os"].iloc[-2] > spt_data["os"].iloc[-3]
+    # )
+    # lc_signal_long = (
+    #     not np.isnan(lc_data["startLongTrade"].iloc[-1]) or lnot np.isnan(lc_data["startLongTrade"].iloc[-2])
+    # )
+    lc_signal_long = not np.isnan(lc_data["startLongTrade"].iloc[-1])
 
-    spt_signal_short = (
-        spt_data["os"].iloc[-1] < spt_data["os"].iloc[-2]
-        or spt_data["os"].iloc[-2] < spt_data["os"].iloc[-3]
-    )
-    lc_signal_short = (
-        lc_data["isBullishChange"].iloc[-1] or lc_data["isBullishChange"].iloc[-2]
-    )
+    # spt_signal_short = (
+    #     spt_data["os"].iloc[-1] < spt_data["os"].iloc[-2]
+    #     or spt_data["os"].iloc[-2] < spt_data["os"].iloc[-3]
+    # )
+    # lc_signal_short = (
+    #    not np.isnan(lc_data["startShortTrade"].iloc[-1]) or not np.isnan(lc_data["startShortTrade"].iloc[-2])
+    # )
+
+    lc_signal_short = not np.isnan(lc_data["startShortTrade"].iloc[-1])
 
     # For generating a long signal, both conditions must be True
-    strategy_long_signal = spt_signal_long and lc_signal_long
+    # strategy_long_signal = spt_signal_long and lc_signal_long
+    strategy_long_signal = lc_signal_long
 
     # For generating a short signal, both conditions must be True
-    strategy_short_signal = spt_signal_short and lc_signal_short
+    # strategy_short_signal = spt_signal_short and lc_signal_short
+    strategy_short_signal = lc_signal_short
 
     longshort = None
     if strategy_long_signal:
-        longshort == "long"
+        longshort = "long"
     elif strategy_short_signal:
         longshort = "short"
 
@@ -229,32 +237,32 @@ def entry_signal(spt_data, lc_data, symbol):
         return 0, 0, longshort
 
     # If there is a signal, first it must be saved in the db
-    timeframe = lc_data["timeframe"].iloc[-1]
-    created_at = lc_data["timestamp"].iloc[-1] / 1000
-    exchange = "Binance Futures"
-    entryexit = "entry"
-    entry_price = lc_data["close"].iloc[-1]
-    exit_price = 0.99 * entry_price
-    db_connection, db_cursor = db_connect("main_db")
-    try:
-        insert_signal_query = "INSERT INTO public.alerts(timeframe, TO_TIMESTAMP(created_at), exchange, entryexit, entry_price, exit_price, symbol) VALUES (%s, %s, %s, %s, %s, %s, %s)"
-        values = (
-            timeframe,
-            created_at,
-            exchange,
-            entryexit,
-            entry_price,
-            exit_price,
-            symbol,
-        )
-        db_cursor.execute(insert_signal_query, values)
-    except Exception as e:
-        log_error(e, "saving entry signal into db")
-    finally:
-        db_cursor.close()
-        db_connection.close()
+    # timeframe = lc_data["timeframe"].iloc[-1]
+    created_at = int(lc_data["timestamp"].iloc[-1] / 1000)
+    # exchange = "Binance Futures"
+    # entryexit = "entry"
+    # entry_price = lc_data["close"].iloc[-1]
+    # exit_price = 0.99 * entry_price
+    # db_connection, db_cursor = db_connect("main_db")
+    # try:
+    #     insert_signal_query = "INSERT INTO public.alerts(timeframe, TO_TIMESTAMP(created_at), exchange, entryexit, entry_price, exit_price, symbol) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+    #     values = (
+    #         timeframe,
+    #         created_at,
+    #         exchange,
+    #         entryexit,
+    #         entry_price,
+    #         exit_price,
+    #         symbol,
+    #     )
+    #     db_cursor.execute(insert_signal_query, values)
+    # except Exception as e:
+    #     log_error(e, "saving entry signal into db")
+    # finally:
+    #     db_cursor.close()
+    #     db_connection.close()
 
-    return 1, created_at
+    return 1, created_at, longshort
 
 
 def exit_signal(lc_data, exit_price, symbol, longshort):
@@ -268,7 +276,7 @@ def exit_signal(lc_data, exit_price, symbol, longshort):
             sl = True
 
         # take profit signal
-        if lc_data["isBearishChange"].iloc[-2]:
+        if lc_data["signal"].iloc[-2] == -1 and lc_data["signal"].iloc[-3] == 1:
             tp = True
 
         # if no signal, just return
@@ -276,9 +284,9 @@ def exit_signal(lc_data, exit_price, symbol, longshort):
             return 0, 0, 0
 
         created_at = lc_data["timestamp"].iloc[-1] / 1000
-        exit_type = "sl" if sl else ("tp" if tp else None)
+        sltp = "sl" if sl else ("tp" if tp else None)
 
-        return 1, exit_type, created_at
+        return 1, sltp, created_at
     elif longshort == "short":
         # exit signal:
         # for short positions -> for stop loss signal, we will monitor the price to be above 99% of entry_price. (so entry_price + 0.01 * entry_price will be our stop loss)
@@ -290,7 +298,7 @@ def exit_signal(lc_data, exit_price, symbol, longshort):
             sl = True
 
         # take profit signal
-        if lc_data["isBullishRate"].iloc[-2]:
+        if lc_data["signal"].iloc[-2] == 1 and lc_data["signal"].iloc[-3] == -1:
             tp = True
 
         # if no signal, just return
@@ -298,34 +306,10 @@ def exit_signal(lc_data, exit_price, symbol, longshort):
             return 0, 0, 0
 
         created_at = lc_data["timestamp"].iloc[-1] / 1000
-        exit_type = "sl" if sl else ("tp" if tp else None)
+        sltp = "sl" if sl else ("tp" if tp else None)
 
-        return 1, exit_type, created_at
+        return 1, sltp, created_at
     return 0, 0, 0
-
-
-def exit_short_signal(lc_data, exit_price, symbol):
-    # exit signal:
-    # for short positions -> for stop loss signal, we will monitor the price to be above 99% of entry_price. (so entry_price + 0.01 * entry_price will be our stop loss)
-    # for short positions -> for tp target signal, we will monitor the lc.df["isBullishRate"] value; if True, we will produce the tp signal.
-
-    sl = tp = False
-    # stop loss signal:
-    if lc_data["close"].iloc[-2] >= exit_price:
-        sl = True
-
-    # take profit signal
-    if lc_data["isBullishRate"].iloc[-2]:
-        tp = True
-
-    # if no signal, just return
-    if not (sl or tp):
-        return 0, 0, 0
-
-    created_at = lc_data["timestamp"].iloc[-1] / 1000
-    exit_type = "sl" if sl else ("tp" if tp else None)
-
-    return 1, exit_type, created_at
 
 
 def insert_signal_db(
@@ -335,16 +319,18 @@ def insert_signal_db(
     entryexit,
     entry_price,
     exit_price,
-    exit_type,
     symbol,
-    message_id,
+    signal_message_id,
+    longshort,
+    sltp=None,
 ):
+    print("########################### from insert signal")
     if len(str(created_at)) == 13:
-        created_at = created_at // 1000
+        created_at = int(created_at // 1000)
 
     db_connection, db_cursor = db_connect("main_db")
     try:
-        insert_signal_query = "INSERT INTO public.alerts(timeframe, TO_TIMESTAMP(created_at), exchange, entryexit, entry_price, exit_price, exit_type, symbol, message_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        insert_signal_query = "INSERT INTO public.alerts(timeframe, created_at, exchange, entryexit, entry_price, exit_price, sltp, symbol, signal_message_id, longshort) VALUES (%s, TO_TIMESTAMP(%s), %s, %s, %s, %s, %s, %s, %s, %s)"
         values = (
             timeframe,
             created_at,
@@ -352,9 +338,10 @@ def insert_signal_db(
             entryexit,
             entry_price,
             exit_price,
-            exit_type,
+            sltp,
             symbol,
-            message_id,
+            signal_message_id,
+            longshort,
         )
         db_cursor.execute(insert_signal_query, values)
     except Exception as e:
@@ -362,3 +349,54 @@ def insert_signal_db(
     finally:
         db_cursor.close()
         db_connection.close()
+
+
+def supertrend(prices, length, factor):
+    src = (prices["high"] + prices["low"]) / 2
+    spt_df = pd.DataFrame()
+    spt_df["atr"] = ta.atr(
+        high=prices["high"],
+        low=prices["low"],
+        close=prices["close"],
+        length=length,
+    )
+    spt_df["upper"] = src + factor * spt_df["atr"]
+    spt_df["lower"] = src - factor * spt_df["atr"]
+    spt_df["prev_lower"] = spt_df["lower"].shift(1)
+    spt_df["prev_upper"] = spt_df["upper"].shift(1)
+    spt_df["close"] = prices["close"]
+    lower_array = spt_df["lower"].values.flatten()
+    upper_array = spt_df["upper"].values.flatten()
+    prev_lower_array = spt_df["prev_lower"].values.flatten()
+    prev_upper_array = spt_df["prev_upper"].values.flatten()
+    close_array = prices["close"].shift(1).values.flatten()
+    lower_array = np.where(
+        np.bitwise_or(lower_array > prev_lower_array, close_array < prev_lower_array),
+        lower_array,
+        prev_lower_array,
+    )
+
+    upper_array = np.where(
+        np.bitwise_or(upper_array < prev_upper_array, close_array > prev_upper_array),
+        upper_array,
+        prev_upper_array,
+    )
+
+    spt_df["lower"] = pd.DataFrame(lower_array)
+    spt_df["upper"] = pd.DataFrame(upper_array)
+    spt_df["direction"] = np.nan
+    spt_df["supertrend"] = np.nan
+    spt_df["prev_supertrend"] = spt_df["supertrend"].shift(1)
+    spt_df["direction"] = np.where(
+        pd.isna(spt_df["atr"].shift(1)),
+        1,
+        np.where(
+            spt_df["prev_supertrend"] == spt_df["upper"].shift(1),
+            np.where(spt_df["close"] > spt_df["upper"], -1, 1),
+            np.where(spt_df["close"] < spt_df["lower"], 1, -1),
+        ),
+    )
+    spt_df["supertrend"] = np.where(
+        spt_df["direction"] == -1, spt_df["lower"], spt_df["upper"]
+    )
+    return spt_df

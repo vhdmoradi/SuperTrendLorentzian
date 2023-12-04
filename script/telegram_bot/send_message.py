@@ -10,10 +10,10 @@ load_dotenv()
 
 
 async def send_telegram_message(
-    signal_time,
     entryexit,
     longshort,
     symbol,
+    entry_price=None,
     signal_message_id=None,
     exit_price=0,
     exit_type=None,
@@ -21,10 +21,9 @@ async def send_telegram_message(
 ):
     bot_token = os.getenv("BOT_TOKEN")
     channel_id = os.getenv("CHANNEL_ID")
-    signal_time = datetime.datetime.fromtimestamp(signal_time)
-    signal_time = signal_time.strftime("%Y-%m-%d %H:%M:%S")
+    signal_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     long_short_emoji = "🟢" if longshort == "long" else "🔴"
-    entry_message = f"{long_short_emoji}{longshort} position on {symbol}.P{long_short_emoji}\n🎋TP: Unknown\n❗️SL: {exit_price}$\n⏱{signal_time}{long_short_emoji}"
+    entry_message = f"{long_short_emoji}{longshort} position on {symbol}.P{long_short_emoji}\n💸Entry price: {entry_price}\n🎋TP: Unknown\n❗️SL: {exit_price}$\n⏱{signal_time}{long_short_emoji}"
 
     exit_message = (
         f"❌Position stopped at {price_diff}% loss❌"
@@ -32,11 +31,17 @@ async def send_telegram_message(
         else f"❇️Position Targeted at {price_diff}% profit❇️"
     )
     bot = Bot(token=bot_token)
-    message_object = await bot.send_message(
-        chat_id=channel_id,
-        text=exit_message,
-        reply_to_message_id=signal_message_id,
-    )
+    if entryexit == "entry":
+        message_object = await bot.send_message(
+            chat_id=channel_id,
+            text=entry_message,
+        )
+    elif entryexit == "exit":
+        message_object = await bot.send_message(
+            chat_id=channel_id,
+            text=exit_message,
+            reply_to_message_id=signal_message_id,
+        )
     return message_object.message_id
     # try:
     #     if entryexit == "entry":
