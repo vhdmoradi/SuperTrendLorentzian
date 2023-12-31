@@ -112,51 +112,58 @@ async def main():
     for symbol_pair in binance_symbols:
         spt_result_for_symbol = spt_result_dic[symbol_pair]
         lc_result_for_symbol = lc_result_dic[symbol_pair]
-
         # We will check the symbols with the latest entryexit alarm value with 'entry' for exit signals from exit_long_signal() function
         # for exit strategy, we either need the lorentzien line to change direction (tp) or the price to be less than 99% of the entry price
         if (
             symbol_pair in latest_alerts
             and latest_alerts[symbol_pair]["entryexit"] == "entry"
         ):
+            # next_timestamp = timestamp + 3600000
+
             entry_price = latest_alerts[symbol_pair]["entry_price"]
             exit_price = latest_alerts[symbol_pair]["exit_price"]
             longshort = latest_alerts[symbol_pair]["longshort"]
-            is_signal, sltp, timestamp = functions.exit_signal(
+
+            is_signal, sltp, timestamp, exit_price_from_signal = functions.exit_signal(
                 lc_result_for_symbol.df.tail(10), exit_price, symbol_pair, longshort
             )
-            price_diff = abs(entry_price - exit_price) / exit_price * 100
+            price_diff = abs(entry_price - exit_price_from_signal) / entry_price * 100
             # if there is a signal, first send the telegram message
             # it is an exit signal, so first we should retrieve the signal_message_id of the entry signal
             if is_signal:
                 entry_signal_message_id = (
                     latest_alerts[symbol_pair]["signal_message_id"] or None
                 )
-                signal_message_id = loop.run_until_complete(
-                    send_message.send_telegram_message(
-                        entryexit="exit",
-                        symbol=symbol_pair,
-                        signal_message_id=entry_signal_message_id,
-                        longshort=longshort,
-                        sltp=sltp,
-                        price_diff=price_diff,
-                    )
+                signal_message_id = await send_message.send_telegram_message(
+                    entryexit="exit",
+                    symbol=symbol_pair,
+                    signal_message_id=entry_signal_message_id,
+                    longshort=longshort,
+                    sltp=sltp,
+                    price_diff=price_diff,
                 )
 
                 # after sending message and getting signal_message_id, now we enter the signal in db
                 functions.insert_signal_db(
                     timeframe=lc_result_for_symbol.df["timeframe"].iloc[-1],
-                    created_at=lc_result_for_symbol.df["timestamp"].iloc[-1],
+                    created_at=timestamp,
                     exchange="Binance Futures",
                     entryexit="exit",
-                    entry_price=None,
-                    exit_price=lc_result_for_symbol.df["close"].iloc[-2],
-                    sltp=sltp,
+                    entry_price=entry_price,
+                    exit_price=exit_price_from_signal,
+                    longshort=longshort,
                     symbol=symbol_pair,
                     signal_message_id=signal_message_id,
+                    sltp=sltp,
                 )
 
             continue
+        print(
+            spt_result_for_symbol.tail(200),
+            # lc_result_for_symbol.df[
+            #     ["startLongTrade", "startShortTrade", "symbol", "timestamp", "signal"]
+            # ].tail(100),
+        )
         is_signal, timestamp, longshort = functions.entry_signal(
             spt_result_for_symbol.tail(10),
             lc_result_for_symbol.df.tail(10),

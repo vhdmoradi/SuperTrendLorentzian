@@ -15,6 +15,7 @@ import aiohttp
 import pandas_ta as ta
 import numpy as np
 import pandas as pd
+from numpy import nan as npNaN
 
 load_dotenv()
 session = requests.Session()
@@ -72,7 +73,7 @@ async def get_market_data(session, args):
             + "&interval="
             + args["timeframe"]
             + "&limit="
-            + str(225)
+            + str(1500)
         )
 
         async with session.get(url) as response:
@@ -199,32 +200,32 @@ def entry_signal(spt_data, lc_data, symbol):
     spt_signal_short = False
     lc_signal_short = False
 
-    # spt_signal_long = (
-    #     spt_data["os"].iloc[-1] > spt_data["os"].iloc[-2]
-    #     or spt_data["os"].iloc[-2] > spt_data["os"].iloc[-3]
-    # )
-    # lc_signal_long = (
-    #     not np.isnan(lc_data["startLongTrade"].iloc[-1]) or lnot np.isnan(lc_data["startLongTrade"].iloc[-2])
-    # )
-    lc_signal_long = not np.isnan(lc_data["startLongTrade"].iloc[-1])
+    spt_signal_long = (
+        spt_data["os"].iloc[-1] > spt_data["os"].iloc[-2]
+        or spt_data["os"].iloc[-2] > spt_data["os"].iloc[-3]
+    )
+    lc_signal_long = not np.isnan(lc_data["startLongTrade"].iloc[-1]) or not np.isnan(
+        lc_data["startLongTrade"].iloc[-2]
+    )
+    # lc_signal_long = not np.isnan(lc_data["startLongTrade"].iloc[-1])
 
-    # spt_signal_short = (
-    #     spt_data["os"].iloc[-1] < spt_data["os"].iloc[-2]
-    #     or spt_data["os"].iloc[-2] < spt_data["os"].iloc[-3]
-    # )
-    # lc_signal_short = (
-    #    not np.isnan(lc_data["startShortTrade"].iloc[-1]) or not np.isnan(lc_data["startShortTrade"].iloc[-2])
-    # )
+    spt_signal_short = (
+        spt_data["os"].iloc[-1] < spt_data["os"].iloc[-2]
+        or spt_data["os"].iloc[-2] < spt_data["os"].iloc[-3]
+    )
+    lc_signal_short = not np.isnan(lc_data["startShortTrade"].iloc[-1]) or not np.isnan(
+        lc_data["startShortTrade"].iloc[-2]
+    )
 
-    lc_signal_short = not np.isnan(lc_data["startShortTrade"].iloc[-1])
+    # lc_signal_short = not np.isnan(lc_data["startShortTrade"].iloc[-1])
 
     # For generating a long signal, both conditions must be True
-    # strategy_long_signal = spt_signal_long and lc_signal_long
-    strategy_long_signal = lc_signal_long
+    strategy_long_signal = spt_signal_long and lc_signal_long
+    # strategy_long_signal = lc_signal_long
 
     # For generating a short signal, both conditions must be True
-    # strategy_short_signal = spt_signal_short and lc_signal_short
-    strategy_short_signal = lc_signal_short
+    strategy_short_signal = spt_signal_short and lc_signal_short
+    # strategy_short_signal = lc_signal_short
 
     longshort = None
     if strategy_long_signal:
@@ -236,31 +237,7 @@ def entry_signal(spt_data, lc_data, symbol):
     if not strategy_long_signal and not strategy_short_signal:
         return 0, 0, longshort
 
-    # If there is a signal, first it must be saved in the db
-    # timeframe = lc_data["timeframe"].iloc[-1]
     created_at = int(lc_data["timestamp"].iloc[-1] / 1000)
-    # exchange = "Binance Futures"
-    # entryexit = "entry"
-    # entry_price = lc_data["close"].iloc[-1]
-    # exit_price = 0.99 * entry_price
-    # db_connection, db_cursor = db_connect("main_db")
-    # try:
-    #     insert_signal_query = "INSERT INTO public.alerts(timeframe, TO_TIMESTAMP(created_at), exchange, entryexit, entry_price, exit_price, symbol) VALUES (%s, %s, %s, %s, %s, %s, %s)"
-    #     values = (
-    #         timeframe,
-    #         created_at,
-    #         exchange,
-    #         entryexit,
-    #         entry_price,
-    #         exit_price,
-    #         symbol,
-    #     )
-    #     db_cursor.execute(insert_signal_query, values)
-    # except Exception as e:
-    #     log_error(e, "saving entry signal into db")
-    # finally:
-    #     db_cursor.close()
-    #     db_connection.close()
 
     return 1, created_at, longshort
 
@@ -272,7 +249,7 @@ def exit_signal(lc_data, exit_price, symbol, longshort):
         # for long positions -> for tp target signal, we will monitor the lc.df["isBearishChange"] value; if True, we will produce the tp signal.
         sl = tp = False
         # stop loss signal:
-        if lc_data["close"].iloc[-2] < exit_price:
+        if lc_data["close"].iloc[-1] < exit_price:
             sl = True
 
         # take profit signal
@@ -281,12 +258,13 @@ def exit_signal(lc_data, exit_price, symbol, longshort):
 
         # if no signal, just return
         if not (sl or tp):
-            return 0, 0, 0
+            return 0, 0, 0, 0
 
         created_at = lc_data["timestamp"].iloc[-1] / 1000
+        exit_price_from_signal = lc_data["close"].iloc[-2]
         sltp = "sl" if sl else ("tp" if tp else None)
 
-        return 1, sltp, created_at
+        return 1, sltp, created_at, exit_price_from_signal
     elif longshort == "short":
         # exit signal:
         # for short positions -> for stop loss signal, we will monitor the price to be above 99% of entry_price. (so entry_price + 0.01 * entry_price will be our stop loss)
@@ -303,13 +281,15 @@ def exit_signal(lc_data, exit_price, symbol, longshort):
 
         # if no signal, just return
         if not (sl or tp):
-            return 0, 0, 0
+            return 0, 0, 0, 0
 
         created_at = lc_data["timestamp"].iloc[-1] / 1000
+        exit_price_from_signal = lc_data["close"].iloc[-2]
+
         sltp = "sl" if sl else ("tp" if tp else None)
 
-        return 1, sltp, created_at
-    return 0, 0, 0
+        return 1, sltp, created_at, exit_price_from_signal
+    return 0, 0, 0, 0
 
 
 def insert_signal_db(
@@ -324,7 +304,6 @@ def insert_signal_db(
     longshort,
     sltp=None,
 ):
-    print("########################### from insert signal")
     if len(str(created_at)) == 13:
         created_at = int(created_at // 1000)
 
@@ -352,51 +331,116 @@ def insert_signal_db(
 
 
 def supertrend(prices, length, factor):
-    src = (prices["high"] + prices["low"]) / 2
-    spt_df = pd.DataFrame()
-    spt_df["atr"] = ta.atr(
-        high=prices["high"],
-        low=prices["low"],
-        close=prices["close"],
-        length=length,
-    )
-    spt_df["upper"] = src + factor * spt_df["atr"]
-    spt_df["lower"] = src - factor * spt_df["atr"]
-    spt_df["prev_lower"] = spt_df["lower"].shift(1)
-    spt_df["prev_upper"] = spt_df["upper"].shift(1)
-    spt_df["close"] = prices["close"]
-    lower_array = spt_df["lower"].values.flatten()
-    upper_array = spt_df["upper"].values.flatten()
-    prev_lower_array = spt_df["prev_lower"].values.flatten()
-    prev_upper_array = spt_df["prev_upper"].values.flatten()
-    close_array = prices["close"].shift(1).values.flatten()
-    lower_array = np.where(
-        np.bitwise_or(lower_array > prev_lower_array, close_array < prev_lower_array),
-        lower_array,
-        prev_lower_array,
-    )
+    multiplier = factor
+    m = prices["close"].size
+    dir_, trend = [1] * m, [0] * m
+    long, short = [npNaN] * m, [npNaN] * m
+    hl2_ = (prices["high"] + prices["low"]) / 2
+    matr = multiplier * atr(prices=prices, length=length)
+    upperband = hl2_ + matr
+    lowerband = hl2_ - matr
+    for i in range(1, m):
+        if prices["close"].iloc[i] > upperband.iloc[i - 1]:
+            dir_[i] = 1
+        elif prices["close"].iloc[i] < lowerband.iloc[i - 1]:
+            dir_[i] = -1
+        else:
+            dir_[i] = dir_[i - 1]
+            if dir_[i] > 0 and lowerband.iloc[i] < lowerband.iloc[i - 1]:
+                lowerband.iloc[i] = lowerband.iloc[i - 1]
+            if dir_[i] < 0 and upperband.iloc[i] > upperband.iloc[i - 1]:
+                upperband.iloc[i] = upperband.iloc[i - 1]
+        if dir_[i] > 0:
+            trend[i] = long[i] = lowerband.iloc[i]
+        else:
+            trend[i] = short[i] = upperband.iloc[i]
 
-    upper_array = np.where(
-        np.bitwise_or(upper_array < prev_upper_array, close_array > prev_upper_array),
-        upper_array,
-        prev_upper_array,
+    df = pd.DataFrame(
+        {
+            "supertrend": trend,
+            "direction": dir_,
+            "upper": long,
+            "lower": short,
+        },
+        index=prices["close"].index,
     )
+    return df
 
-    spt_df["lower"] = pd.DataFrame(lower_array)
-    spt_df["upper"] = pd.DataFrame(upper_array)
-    spt_df["direction"] = np.nan
-    spt_df["supertrend"] = np.nan
-    spt_df["prev_supertrend"] = spt_df["supertrend"].shift(1)
-    spt_df["direction"] = np.where(
-        pd.isna(spt_df["atr"].shift(1)),
-        1,
-        np.where(
-            spt_df["prev_supertrend"] == spt_df["upper"].shift(1),
-            np.where(spt_df["close"] > spt_df["upper"], -1, 1),
-            np.where(spt_df["close"] < spt_df["lower"], 1, -1),
-        ),
-    )
-    spt_df["supertrend"] = np.where(
-        spt_df["direction"] == -1, spt_df["lower"], spt_df["upper"]
-    )
-    return spt_df
+
+def atr(prices, length=14, smoothing="RMA"):
+    """
+    Calculates the Average True Range (ATR) indicator for a Pandas DataFrame.
+
+    Args:
+      prices: A Pandas DataFrame with columns: "high", "low", "close".
+      length: The number of periods for the rolling mean (default=14).
+      smoothing: The method for smoothing (default="SMA").
+                       Options: "RMA", "SMA", "EMA".
+
+    Returns:
+      A Pandas Series with the ATR values.
+    """
+
+    # Check if necessary columns exist and are not empty
+    if not all(col in prices.columns for col in ("high", "low", "close")):
+        raise ValueError(
+            "Required columns (high, low, close) missing from the DataFrame"
+        )
+    if prices["high"].empty or prices["low"].empty or prices["close"].empty:
+        raise ValueError("One or more columns (high, low, close) are empty")
+
+    # Calculate the True Range (TR)
+    tr = pd.DataFrame(index=prices.index)
+    tr["h_l"] = prices["high"] - prices["low"]
+    tr["h_pc"] = abs(prices["high"] - prices["close"].shift(1))
+    tr["l_pc"] = abs(prices["low"] - prices["close"].shift(1))
+    tr["true_range"] = tr.max(axis=1)
+
+    # Calculate the ATR using the specified smoothing method
+    if smoothing == "RMA":
+        atr = rma(tr[["true_range"]], length=length)
+    elif smoothing == "SMA":
+        atr = tr["true_range"].rolling(window=length, min_periods=1).mean()
+    elif smoothing == "EMA":
+        atr = tr["true_range"].ewm(span=length, min_periods=1, adjust=True).mean()
+
+    else:
+        raise ValueError("Invalid smoothing method. Options: RMA, SMA, EMA, WMA")
+
+    return atr
+
+
+def rma(df, length=14):
+    """
+    Calculates the Recursive Moving Average (RMA) for a Pandas DataFrame with a single column.
+
+    Args:
+      df: A Pandas DataFrame with a single column to calculate the RMA.
+      length: The number of periods for the RMA (default=14).
+
+    Returns:
+      A Pandas Series with the RMA values.
+    """
+
+    # Check if the DataFrame has a single column
+    if len(df.columns) != 1:
+        raise ValueError("DataFrame must have exactly one column for RMA calculation")
+    column = df.columns[0]
+
+    # Check if the necessary column is not empty
+    if df[column].empty:
+        raise ValueError(f"{column} column is empty")
+
+    # Calculate the RMA using vectorized operations
+    alpha = 1 / length
+    rma_values = np.zeros(len(df))
+
+    for i in range(len(df)):
+        if i == 0:
+            rma_values[i] = df[column].iloc[i]
+        else:
+            rma_values[i] = alpha * df[column].iloc[i] + (1 - alpha) * rma_values[i - 1]
+
+    rma = pd.Series(rma_values, index=df.index, name=column + "_RMA")
+
+    return rma

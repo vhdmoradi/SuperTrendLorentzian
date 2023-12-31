@@ -16,9 +16,15 @@ async def send_telegram_message(
     entry_price=None,
     signal_message_id=None,
     exit_price=0,
-    exit_type=None,
+    sltp=None,
     price_diff=None,
 ):
+    if entry_price:
+        entry_price = round(entry_price, 4)
+    if exit_price:
+        exit_price = round(exit_price, 4)
+    if price_diff:
+        price_diff = round(price_diff, 4)
     bot_token = os.getenv("BOT_TOKEN")
     channel_id = os.getenv("CHANNEL_ID")
     signal_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -27,7 +33,7 @@ async def send_telegram_message(
 
     exit_message = (
         f"❌Position stopped at {price_diff}% loss❌"
-        if exit_type == "sl"
+        if sltp == "sl"
         else f"❇️Position Targeted at {price_diff}% profit❇️"
     )
     bot = Bot(token=bot_token)
